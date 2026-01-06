@@ -1,4 +1,4 @@
-/* Version: #9 */
+/* Version: #10 */
 /* === GLOBAL CONFIGURATION & UTILS === */
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -347,19 +347,23 @@ const Game = {
           { "x": 524, "y": 334, "w": 147, "h": 271, "ax": 86, "ay": 44 },
           { "x": 909, "y": 336, "w": 159, "h": 270, "ax": 107, "ay": 41 }
         ],
-        // Placeholder for jump/fall (bruker første frame av idle inntil videre)
         "jump": [ { "x": 15, "y": 13, "w": 134, "h": 290, "ax": 57, "ay": 43 } ],
         "fall": [ { "x": 15, "y": 13, "w": 134, "h": 290, "ax": 57, "ay": 43 } ]
     },
 
     player: {
+        scale: 0.35, // NY: Skaleringsfaktor (35% av originalstørrelsen)
+        
         x: 100, y: 300, 
-        w: 80, h: 250, 
-        vx: 0, vy: 0, speed: 1, jumpForce: -12,
+        w: 30, h: 95, // NY: Justert hitbox til å matche 0.35 skala (134*0.35 = 47, men vi vil ha den smalere. 290*0.35 = 101)
+        
+        vx: 0, vy: 0, 
+        speed: 4, // NY: Økt hastighet siden figuren er mindre
+        jumpForce: -12,
         grounded: false, facingRight: true, state: 'idle',
         coyoteTimer: 0, jumpBuffer: 0,
         animTimer: 0, animFrame: 0, 
-        animSpeed: 8 // Litt raskere (lavere tall) for bedre flyt i walk cycle
+        animSpeed: 8 
     },
 
     platforms: [
@@ -394,145 +398,4 @@ const Game = {
 
         if (Input.isPressed('Space') || Input.isPressed('ArrowUp')) p.jumpBuffer = 10;
         if (p.grounded) p.coyoteTimer = 10;
-        else if (p.coyoteTimer > 0) p.coyoteTimer--;
-        if (p.jumpBuffer > 0) p.jumpBuffer--;
-
-        if (p.jumpBuffer > 0 && p.coyoteTimer > 0) {
-            p.vy = p.jumpForce;
-            p.grounded = false;
-            p.coyoteTimer = 0;
-            p.jumpBuffer = 0;
-        }
-
-        p.grounded = false;
-        p.x += p.vx;
-        for (let plat of this.platforms) {
-            if (this.checkRectCollide(p, plat)) {
-                if (p.vx > 0) p.x = plat.x - p.w;
-                else if (p.vx < 0) p.x = plat.x + plat.w;
-                p.vx = 0;
-            }
-        }
-
-        p.y += p.vy;
-        for (let plat of this.platforms) {
-            if (this.checkRectCollide(p, plat)) {
-                if (p.vy > 0) {
-                    p.y = plat.y - p.h;
-                    p.grounded = true;
-                    p.vy = 0;
-                } else if (p.vy < 0) {
-                    p.y = plat.y + plat.h;
-                    p.vy = 0;
-                }
-            }
-        }
-
-        if (p.y > 2000) { p.x = 100; p.y = 300; p.vy = 0; }
-
-        if (!p.grounded) p.state = p.vy < 0 ? 'jump' : 'fall';
-        else p.state = Math.abs(p.vx) > 0.5 ? 'run' : 'idle';
-
-        if (p.state !== prevState) {
-            p.animTimer = 0;
-            p.animFrame = 0;
-        }
-
-        const targetX = p.x + p.w / 2 - canvas.width / 2;
-        const targetY = p.y + p.h / 2 - canvas.height / 2;
-        this.camera.x += (targetX - this.camera.x) * 0.1;
-        this.camera.y += (targetY - this.camera.y) * 0.1; 
-    },
-
-    checkRectCollide(r1, r2) {
-        return (r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1.y < r2.y + r2.h && r1.y + r1.h > r2.y);
-    },
-
-    draw() {
-        if (Studio.active) return;
-
-        ctx.fillStyle = '#6fa8dc';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        ctx.save();
-        ctx.translate(-Math.floor(this.camera.x), -Math.floor(this.camera.y));
-
-        for (let plat of this.platforms) {
-            ctx.fillStyle = '#666';
-            ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
-            ctx.fillStyle = '#4a6';
-            ctx.fillRect(plat.x, plat.y, plat.w, 10);
-        }
-
-        this.drawPlayer();
-        ctx.restore();
-    },
-
-    drawPlayer() {
-        const p = this.player;
-        ctx.save();
-        
-        // --- LOGIKK FOR PLASSERING ---
-        const groundY = p.y + p.h;
-        const centerX = p.x + p.w / 2;
-
-        ctx.translate(centerX, groundY);
-        if (!p.facingRight) ctx.scale(-1, 1); 
-
-        const anim = this.spriteDefs[p.state];
-        
-        if (Resources.spritesheet && anim && anim.length > 0) {
-            p.animTimer++;
-            const frameIndex = Math.floor(p.animTimer / p.animSpeed) % anim.length;
-            const f = anim[frameIndex];
-            
-            ctx.drawImage(Resources.spritesheet, f.x, f.y, f.w, f.h, -f.ax, -f.h, f.w, f.h);
-        } else {
-            ctx.fillStyle = p.state === 'jump' || p.state === 'fall' ? '#ff0055' : '#ffcc00';
-            ctx.fillRect(-p.w/2, -p.h, p.w, p.h);
-            ctx.fillStyle = 'white'; ctx.fillRect(4, -40, 8, 8);
-            ctx.fillStyle = 'black'; ctx.fillRect(8, -40, 4, 4);
-        }
-        ctx.restore();
-    }
-};
-
-/* === APP / MAIN LOOP === */
-const App = {
-    init() {
-        log("Initialiserer 2D Platformer Engine v9 (Walk Anim Added)...");
-        Input.init();
-        Resources.init();
-        Studio.resetView();
-
-        UI.studioOverlay.style.pointerEvents = 'none';
-        if(UI.studioHeader) UI.studioHeader.style.pointerEvents = 'auto';
-        if(UI.studioHelp) UI.studioHelp.style.pointerEvents = 'auto';
-        if(UI.jsonContainer) UI.jsonContainer.style.pointerEvents = 'auto';
-        
-        requestAnimationFrame(this.loop.bind(this));
-    },
-
-    toggleStudio() {
-        Studio.toggle();
-    },
-
-    loop() {
-        if (Studio.active) {
-            Studio.update();
-            Studio.draw();
-        } else {
-            Game.update();
-            Game.draw();
-        }
-        if (!Studio.active) {
-            UI.debugInfo.textContent = `FPS: 60 | State: ${Game.player.state}`;
-        }
-        requestAnimationFrame(this.loop.bind(this));
-    }
-};
-
-window.onload = () => {
-    App.init();
-};
-/* Version: #9 */
+        else if (p.coyot
