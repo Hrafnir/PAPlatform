@@ -1,4 +1,4 @@
-/* Version: #7 */
+/* Version: #8 */
 /* === GLOBAL CONFIGURATION & UTILS === */
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -94,6 +94,19 @@ const Resources = {
     spritesheet: null,
     
     init() {
+        // 1. Prøv å laste standard spritesheet automatisk
+        const defaultImg = new Image();
+        defaultImg.src = 'sprites/PA.png';
+        defaultImg.onload = () => {
+            this.spritesheet = defaultImg;
+            log("Lastet sprites/PA.png automatisk.");
+            Studio.resetView();
+        };
+        defaultImg.onerror = () => {
+            log("Kunne ikke laste 'sprites/PA.png'. Bruk manuell opplasting (F1).");
+        };
+
+        // 2. Håndter manuell opplasting (Fallback)
         UI.fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -102,7 +115,7 @@ const Resources = {
                 const img = new Image();
                 img.onload = () => {
                     this.spritesheet = img;
-                    log("Nytt spritesheet lastet opp.");
+                    log("Nytt spritesheet lastet opp manuelt.");
                     Studio.resetView();
                 };
                 img.src = event.target.result;
@@ -268,7 +281,7 @@ const Studio = {
         } else {
             ctx.fillStyle = '#555';
             ctx.font = '10px Arial';
-            ctx.fillText("Ingen bilde", 10, 10);
+            ctx.fillText("Ingen bilde. Prøver å laste sprites/PA.png...", 10, 10);
         }
 
         if (this.frames.length > 0) {
@@ -457,14 +470,8 @@ const Game = {
         const p = this.player;
         ctx.save();
         
-        // --- NY LOGIKK FOR PLASSERING ---
-        // 1. Vertikalt: Vi bruker bunnen av Hitboxen (p.y + p.h) som "Gulv".
-        //    Vi sørger for at bunnen av animasjons-rammen (f.h) treffer dette gulvet.
-        //    Dette ignorerer ay (øye-høyde) for plassering mot bakken, som sikrer at føttene står støtt.
+        // --- LOGIKK FOR PLASSERING (Høyde: Gulv / Bredde: Senter) ---
         const groundY = p.y + p.h;
-
-        // 2. Horisontalt: Vi bruker sentrum av Hitboxen.
-        //    Her bruker vi ax (anker/øye) til å sentrere figuren.
         const centerX = p.x + p.w / 2;
 
         ctx.translate(centerX, groundY);
@@ -477,29 +484,22 @@ const Game = {
             const frameIndex = Math.floor(p.animTimer / p.animSpeed) % anim.length;
             const f = anim[frameIndex];
             
-            // Tegn bildet:
-            // dx = -f.ax: Dette gjør at 'ax' (øyet) havner på X=0 (som er sentrum av hitboxen)
-            // dy = -f.h:  Dette gjør at bunnen av bildet havner på Y=0 (som er bakken/gulvet)
+            // Tegn bildet slik at 'ax' (øyet) er på centerX, og bunnen av bildet ('f.h') er på groundY
             ctx.drawImage(Resources.spritesheet, f.x, f.y, f.w, f.h, -f.ax, -f.h, f.w, f.h);
-            
         } else {
-            // Fallback
             ctx.fillStyle = p.state === 'jump' || p.state === 'fall' ? '#ff0055' : '#ffcc00';
             ctx.fillRect(-p.w/2, -p.h, p.w, p.h);
             ctx.fillStyle = 'white'; ctx.fillRect(4, -40, 8, 8);
             ctx.fillStyle = 'black'; ctx.fillRect(8, -40, 4, 4);
         }
         ctx.restore();
-        
-        // Debug: Vis Hitbox (for å sjekke at føttene treffer bunnen av boksen)
-        // ctx.strokeStyle = 'red'; ctx.strokeRect(p.x, p.y, p.w, p.h);
     }
 };
 
 /* === APP / MAIN LOOP === */
 const App = {
     init() {
-        log("Initialiserer 2D Platformer Engine v7 (Anchor Fix)...");
+        log("Initialiserer 2D Platformer Engine v8 (Auto Load Sprite)...");
         Input.init();
         Resources.init();
         Studio.resetView();
@@ -534,4 +534,4 @@ const App = {
 window.onload = () => {
     App.init();
 };
-/* Version: #7 */
+/* Version: #8 */
