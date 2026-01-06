@@ -1,4 +1,4 @@
-/* Version: #8 */
+/* Version: #9 */
 /* === GLOBAL CONFIGURATION & UTILS === */
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -342,10 +342,12 @@ const Game = {
           { "x": 819, "y": 15, "w": 134, "h": 290, "ax": 57, "ay": 43 }
         ], 
         "run":  [
-          { "x": 15, "y": 13, "w": 134, "h": 290, "ax": 57, "ay": 43 },
-          { "x": 353, "y": 14, "w": 134, "h": 290, "ax": 57, "ay": 43 },
-          { "x": 819, "y": 15, "w": 134, "h": 290, "ax": 57, "ay": 43 }
+          { "x": 14, "y": 335, "w": 147, "h": 271, "ax": 86, "ay": 42 },
+          { "x": 351, "y": 335, "w": 147, "h": 271, "ax": 86, "ay": 42 },
+          { "x": 524, "y": 334, "w": 147, "h": 271, "ax": 86, "ay": 44 },
+          { "x": 909, "y": 336, "w": 159, "h": 270, "ax": 107, "ay": 41 }
         ],
+        // Placeholder for jump/fall (bruker første frame av idle inntil videre)
         "jump": [ { "x": 15, "y": 13, "w": 134, "h": 290, "ax": 57, "ay": 43 } ],
         "fall": [ { "x": 15, "y": 13, "w": 134, "h": 290, "ax": 57, "ay": 43 } ]
     },
@@ -357,7 +359,7 @@ const Game = {
         grounded: false, facingRight: true, state: 'idle',
         coyoteTimer: 0, jumpBuffer: 0,
         animTimer: 0, animFrame: 0, 
-        animSpeed: 12
+        animSpeed: 8 // Litt raskere (lavere tall) for bedre flyt i walk cycle
     },
 
     platforms: [
@@ -470,7 +472,7 @@ const Game = {
         const p = this.player;
         ctx.save();
         
-        // --- LOGIKK FOR PLASSERING (Høyde: Gulv / Bredde: Senter) ---
+        // --- LOGIKK FOR PLASSERING ---
         const groundY = p.y + p.h;
         const centerX = p.x + p.w / 2;
 
@@ -484,7 +486,6 @@ const Game = {
             const frameIndex = Math.floor(p.animTimer / p.animSpeed) % anim.length;
             const f = anim[frameIndex];
             
-            // Tegn bildet slik at 'ax' (øyet) er på centerX, og bunnen av bildet ('f.h') er på groundY
             ctx.drawImage(Resources.spritesheet, f.x, f.y, f.w, f.h, -f.ax, -f.h, f.w, f.h);
         } else {
             ctx.fillStyle = p.state === 'jump' || p.state === 'fall' ? '#ff0055' : '#ffcc00';
@@ -499,7 +500,7 @@ const Game = {
 /* === APP / MAIN LOOP === */
 const App = {
     init() {
-        log("Initialiserer 2D Platformer Engine v8 (Auto Load Sprite)...");
+        log("Initialiserer 2D Platformer Engine v9 (Walk Anim Added)...");
         Input.init();
         Resources.init();
         Studio.resetView();
@@ -534,4 +535,4 @@ const App = {
 window.onload = () => {
     App.init();
 };
-/* Version: #8 */
+/* Version: #9 */
