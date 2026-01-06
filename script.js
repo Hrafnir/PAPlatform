@@ -398,4 +398,154 @@ const Game = {
 
         if (Input.isPressed('Space') || Input.isPressed('ArrowUp')) p.jumpBuffer = 10;
         if (p.grounded) p.coyoteTimer = 10;
-        else if (p.coyot
+        else if (p.coyoteTimer > 0) p.coyoteTimer--;
+        if (p.jumpBuffer > 0) p.jumpBuffer--;
+
+        if (p.jumpBuffer > 0 && p.coyoteTimer > 0) {
+            p.vy = p.jumpForce;
+            p.grounded = false;
+            p.coyoteTimer = 0;
+            p.jumpBuffer = 0;
+        }
+
+        p.grounded = false;
+        p.x += p.vx;
+        for (let plat of this.platforms) {
+            if (this.checkRectCollide(p, plat)) {
+                if (p.vx > 0) p.x = plat.x - p.w;
+                else if (p.vx < 0) p.x = plat.x + plat.w;
+                p.vx = 0;
+            }
+        }
+
+        p.y += p.vy;
+        for (let plat of this.platforms) {
+            if (this.checkRectCollide(p, plat)) {
+                if (p.vy > 0) {
+                    p.y = plat.y - p.h;
+                    p.grounded = true;
+                    p.vy = 0;
+                } else if (p.vy < 0) {
+                    p.y = plat.y + plat.h;
+                    p.vy = 0;
+                }
+            }
+        }
+
+        if (p.y > 2000) { p.x = 100; p.y = 300; p.vy = 0; }
+
+        if (!p.grounded) p.state = p.vy < 0 ? 'jump' : 'fall';
+        else p.state = Math.abs(p.vx) > 0.5 ? 'run' : 'idle';
+
+        if (p.state !== prevState) {
+            p.animTimer = 0;
+            p.animFrame = 0;
+        }
+
+        const targetX = p.x + p.w / 2 - canvas.width / 2;
+        const targetY = p.y + p.h / 2 - canvas.height / 2;
+        this.camera.x += (targetX - this.camera.x) * 0.1;
+        this.camera.y += (targetY - this.camera.y) * 0.1; 
+    },
+
+    checkRectCollide(r1, r2) {
+        return (r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1.y < r2.y + r2.h && r1.y + r1.h > r2.y);
+    },
+
+    draw() {
+        if (Studio.active) return;
+
+        ctx.fillStyle = '#6fa8dc';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.save();
+        ctx.translate(-Math.floor(this.camera.x), -Math.floor(this.camera.y));
+
+        for (let plat of this.platforms) {
+            ctx.fillStyle = '#666';
+            ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
+            ctx.fillStyle = '#4a6';
+            ctx.fillRect(plat.x, plat.y, plat.w, 10);
+        }
+
+        this.drawPlayer();
+        ctx.restore();
+    },
+
+    drawPlayer() {
+        const p = this.player;
+        ctx.save();
+        
+        // --- LOGIKK FOR PLASSERING ---
+        const groundY = p.y + p.h;
+        const centerX = p.x + p.w / 2;
+
+        ctx.translate(centerX, groundY);
+        
+        // --- SKALERING ---
+        // Vi bruker p.scale for størrelse, og p.facingRight for retning
+        const dir = p.facingRight ? 1 : -1;
+        ctx.scale(dir * p.scale, p.scale); 
+
+        const anim = this.spriteDefs[p.state];
+        
+        if (Resources.spritesheet && anim && anim.length > 0) {
+            p.animTimer++;
+            const frameIndex = Math.floor(p.animTimer / p.animSpeed) % anim.length;
+            const f = anim[frameIndex];
+            
+            // Tegnes i full oppløsning, men Canvas Context er skalert ned
+            ctx.drawImage(Resources.spritesheet, f.x, f.y, f.w, f.h, -f.ax, -f.h, f.w, f.h);
+        } else {
+            // Fallback (må også skaleres visuelt opp i koden hvis vi ikke scaler context)
+            // Men siden context er skalert, tegner vi bare "vanlig" størrelse her så blir det lite
+            ctx.fillStyle = p.state === 'jump' || p.state === 'fall' ? '#ff0055' : '#ffcc00';
+            // Vi må tegne en boks som representerer originalstørrelsen før skalering
+            ctx.fillRect(-40, -250, 80, 250); 
+        }
+        ctx.restore();
+        
+        // Debug: Vis Hitbox (denne påvirkes IKKE av skaleringen over, siden ctx.restore() er kalt)
+        // ctx.strokeStyle = 'red'; ctx.strokeRect(p.x, p.y, p.w, p.h);
+    }
+};
+
+/* === APP / MAIN LOOP === */
+const App = {
+    init() {
+        log("Initialiserer 2D Platformer Engine v10 (Scaled Player)...");
+        Input.init();
+        Resources.init();
+        Studio.resetView();
+
+        UI.studioOverlay.style.pointerEvents = 'none';
+        if(UI.studioHeader) UI.studioHeader.style.pointerEvents = 'auto';
+        if(UI.studioHelp) UI.studioHelp.style.pointerEvents = 'auto';
+        if(UI.jsonContainer) UI.jsonContainer.style.pointerEvents = 'auto';
+        
+        requestAnimationFrame(this.loop.bind(this));
+    },
+
+    toggleStudio() {
+        Studio.toggle();
+    },
+
+    loop() {
+        if (Studio.active) {
+            Studio.update();
+            Studio.draw();
+        } else {
+            Game.update();
+            Game.draw();
+        }
+        if (!Studio.active) {
+            UI.debugInfo.textContent = `FPS: 60 | State: ${Game.player.state}`;
+        }
+        requestAnimationFrame(this.loop.bind(this));
+    }
+};
+
+window.onload = () => {
+    App.init();
+};
+/* Version: #10 */
