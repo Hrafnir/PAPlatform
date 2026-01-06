@@ -1,0 +1,54 @@
+<!-- Version: #1 -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Platformer & Animation Studio</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="main-container">
+        <!-- Hovedspill og Studio Canvas -->
+        <canvas id="gameCanvas" width="1280" height="720"></canvas>
+
+        <!-- UI Overlay for spillet (HUD) -->
+        <div id="game-ui">
+            <div id="score-display">Coins: 0</div>
+            <div id="debug-info">FPS: 60</div>
+        </div>
+
+        <!-- Animation Studio Overlay (Skjult som standard, toggles med F1) -->
+        <div id="studio-ui" class="hidden">
+            <div class="studio-header">
+                <h2>Animation Studio</h2>
+                <div class="file-controls">
+                    <label for="spriteUpload" class="custom-file-upload">
+                        Last opp Spritesheet
+                    </label>
+                    <input type="file" id="spriteUpload" accept="image/png, image/jpeg">
+                </div>
+                <div class="studio-info">
+                    <span id="studio-mode-indicator">MODE: BOX (Red)</span>
+                    <span id="frame-counter">Frame: 0</span>
+                </div>
+            </div>
+
+            <div class="studio-help">
+                <p><strong>F1:</strong> Toggle Studio | <strong>Piler:</strong> Flytt | <strong>WASD:</strong> Endre str | <strong>TAB:</strong> Bytt (Boks/Anker) | <strong>Enter:</strong> Lagre & Neste | <strong>F:</strong> Generer JSON</p>
+                <p><strong>Shift/Ctrl:</strong> Endre hastighet | <strong>Mus:</strong> Panorer/Zoom (Scroll)</p>
+            </div>
+
+            <!-- Output område for generert JSON -->
+            <div id="json-output-container" class="hidden">
+                <textarea id="jsonOutput" readonly placeholder="Trykk 'F' for å generere JSON..."></textarea>
+                <button id="close-json">Lukk</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+<!-- Version: #1 -->
