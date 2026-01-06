@@ -1,4 +1,4 @@
-/* Version: #5 */
+/* Version: #6 */
 /* === GLOBAL CONFIGURATION & UTILS === */
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -48,7 +48,6 @@ const Input = {
         });
 
         // Mouse Events
-        // Vi legger lyttere på window for å fange opp drags som går utenfor canvas
         window.addEventListener('mousedown', (e) => {
             if (e.target === canvas) {
                 this.mouse.isDown = true;
@@ -122,21 +121,14 @@ const Studio = {
     active: false,
     frames: [], 
     currentFrame: { x: 0, y: 0, w: 32, h: 32, ax: 16, ay: 32 },
-    
-    // Viewport
     view: { x: 0, y: 0, scale: 2.0 },
-
-    // Mouse Interaction State
-    dragMode: 'NONE', // 'NONE', 'PAN', 'BOX', 'RESIZE', 'ANCHOR'
-    dragOffset: { x: 0, y: 0 }, // Hvor i boksen vi klikket
+    dragMode: 'NONE', 
+    dragOffset: { x: 0, y: 0 }, 
 
     toggle() {
         this.active = !this.active;
-        if (this.active) {
-            UI.studioOverlay.classList.remove('hidden');
-        } else {
-            UI.studioOverlay.classList.add('hidden');
-        }
+        if (this.active) UI.studioOverlay.classList.remove('hidden');
+        else UI.studioOverlay.classList.add('hidden');
     },
 
     resetView() {
@@ -145,7 +137,6 @@ const Studio = {
         this.view.scale = 2.0;
     },
 
-    // Konverterer skjerm-koordinater (mus) til verden-koordinater (spritesheet)
     screenToWorld(sx, sy) {
         return {
             x: (sx - this.view.x) / this.view.scale,
@@ -158,15 +149,8 @@ const Studio = {
         const oldScale = this.view.scale;
         let newScale = delta < 0 ? oldScale + zoomSpeed : oldScale - zoomSpeed;
         newScale = Math.max(0.1, newScale);
-
-        // Zoom mot muspekeren:
-        // 1. Finn hvor musa er i verden FØR zoom
         const worldPos = this.screenToWorld(mouseX, mouseY);
-
-        // 2. Oppdater scale
         this.view.scale = newScale;
-
-        // 3. Juster view.x/y slik at worldPos er på samme skjermsted
         this.view.x = mouseX - (worldPos.x * newScale);
         this.view.y = mouseY - (worldPos.y * newScale);
     },
@@ -175,20 +159,16 @@ const Studio = {
         const wMouse = this.screenToWorld(mx, my);
         const f = this.currentFrame;
         
-        // Sjekk treffsoner (Prioritet: Anker > Resize > Boks > Bakgrunn)
-        
-        // 1. ANCHOR (Cyan kryss) - Toleranse på 10px (i skjermpiksler)
         const anchorScreenX = (f.x + f.ax) * this.view.scale + this.view.x;
         const anchorScreenY = (f.y + f.ay) * this.view.scale + this.view.y;
         const distAnchor = Math.hypot(mx - anchorScreenX, my - anchorScreenY);
         
         if (distAnchor < 15) {
             this.dragMode = 'ANCHOR';
-            this.dragOffset = { x: f.ax - (wMouse.x - f.x), y: f.ay - (wMouse.y - f.y) }; // Offset fra frame top-left
+            this.dragOffset = { x: f.ax - (wMouse.x - f.x), y: f.ay - (wMouse.y - f.y) };
             return;
         }
 
-        // 2. RESIZE HANDLE (Høyre hjørne)
         const handleScreenX = (f.x + f.w) * this.view.scale + this.view.x;
         const handleScreenY = (f.y + f.h) * this.view.scale + this.view.y;
         const distHandle = Math.hypot(mx - handleScreenX, my - handleScreenY);
@@ -199,15 +179,12 @@ const Studio = {
             return;
         }
 
-        // 3. BOX BODY
-        if (wMouse.x >= f.x && wMouse.x <= f.x + f.w &&
-            wMouse.y >= f.y && wMouse.y <= f.y + f.h) {
+        if (wMouse.x >= f.x && wMouse.x <= f.x + f.w && wMouse.y >= f.y && wMouse.y <= f.y + f.h) {
             this.dragMode = 'BOX';
             this.dragOffset = { x: wMouse.x - f.x, y: wMouse.y - f.y };
             return;
         }
 
-        // 4. PAN VIEW
         this.dragMode = 'PAN';
         this.dragOffset = { x: mx - this.view.x, y: my - this.view.y };
     },
@@ -220,12 +197,10 @@ const Studio = {
         const wMouse = this.screenToWorld(mx, my);
         const f = this.currentFrame;
 
-        // Oppdater cursor basert på hover når vi ikke drar
         if (this.dragMode === 'NONE') {
             const anchorScreenX = (f.x + f.ax) * this.view.scale + this.view.x;
             const anchorScreenY = (f.y + f.ay) * this.view.scale + this.view.y;
             const distAnchor = Math.hypot(mx - anchorScreenX, my - anchorScreenY);
-            
             const handleScreenX = (f.x + f.w) * this.view.scale + this.view.x;
             const handleScreenY = (f.y + f.h) * this.view.scale + this.view.y;
             const distHandle = Math.hypot(mx - handleScreenX, my - handleScreenY);
@@ -236,7 +211,6 @@ const Studio = {
             else canvas.style.cursor = 'default';
         }
 
-        // Utfør dragging
         if (this.dragMode === 'PAN') {
             this.view.x = mx - this.dragOffset.x;
             this.view.y = my - this.dragOffset.y;
@@ -246,7 +220,6 @@ const Studio = {
             f.y = Math.round(wMouse.y - this.dragOffset.y);
         } 
         else if (this.dragMode === 'RESIZE') {
-            // Beregn ny width/height basert på musposisjon relativt til boksens start
             let newW = Math.round(wMouse.x - f.x);
             let newH = Math.round(wMouse.y - f.y);
             if (newW < 1) newW = 1;
@@ -255,8 +228,6 @@ const Studio = {
             f.h = newH;
         } 
         else if (this.dragMode === 'ANCHOR') {
-            // Anker er relativt til f.x/f.y
-            // Musens posisjon i verden - boksens posisjon = anker offset
             f.ax = Math.round(wMouse.x - f.x);
             f.ay = Math.round(wMouse.y - f.y);
         }
@@ -264,8 +235,6 @@ const Studio = {
 
     update() {
         if (!this.active) return;
-
-        // Keyboard shortcuts (beholder disse for presisjon)
         if (Input.isPressed('Enter')) {
             const frameData = { ...this.currentFrame };
             this.frames.push(frameData);
@@ -278,7 +247,6 @@ const Studio = {
             UI.jsonContainer.classList.remove('hidden');
         }
         if (Input.isPressed('Tab')) {
-            // Toggle mode visuelt, selv om musa gjør alt nå
             this.mode = this.mode === 'BOX' ? 'ANCHOR' : 'BOX';
             UI.modeIndicator.textContent = `MODE: ${this.mode}`;
         }
@@ -303,7 +271,6 @@ const Studio = {
             ctx.fillText("Ingen bilde", 10, 10);
         }
 
-        // Onion Skin
         if (this.frames.length > 0) {
             const prev = this.frames[this.frames.length - 1];
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
@@ -311,23 +278,19 @@ const Studio = {
             ctx.strokeRect(prev.x, prev.y, prev.w, prev.h);
         }
 
-        // Saved Frames
         ctx.strokeStyle = '#00ff00';
         ctx.lineWidth = 1 / this.view.scale;
         for (let f of this.frames) ctx.strokeRect(f.x, f.y, f.w, f.h);
 
-        // Current Frame
         const c = this.currentFrame;
         ctx.strokeStyle = '#ff0055'; 
         ctx.lineWidth = 2 / this.view.scale;
         ctx.strokeRect(c.x, c.y, c.w, c.h);
 
-        // Resize Handle (Liten hvit boks nede til høyre)
         const handleSize = 6 / this.view.scale;
         ctx.fillStyle = 'white';
         ctx.fillRect(c.x + c.w - handleSize, c.y + c.h - handleSize, handleSize, handleSize);
 
-        // Anchor Point (Cyan Cross)
         const worldAx = c.x + c.ax;
         const worldAy = c.y + c.ay;
         const crossSize = 5 / this.view.scale;
@@ -359,19 +322,31 @@ const Game = {
     friction: 0.85,
     camera: { x: 0, y: 0 },
 
+    // JSON Data fra Studio
     spriteDefs: {
-        "idle": [], 
-        "run":  [],
-        "jump": [],
-        "fall": []
+        "idle": [
+          { "x": 15, "y": 13, "w": 134, "h": 290, "ax": 57, "ay": 43 },
+          { "x": 353, "y": 14, "w": 134, "h": 290, "ax": 57, "ay": 43 },
+          { "x": 819, "y": 15, "w": 134, "h": 290, "ax": 57, "ay": 43 }
+        ], 
+        // Vi bruker Idle som fallback for de andre inntil videre
+        "run":  [
+          { "x": 15, "y": 13, "w": 134, "h": 290, "ax": 57, "ay": 43 },
+          { "x": 353, "y": 14, "w": 134, "h": 290, "ax": 57, "ay": 43 },
+          { "x": 819, "y": 15, "w": 134, "h": 290, "ax": 57, "ay": 43 }
+        ],
+        "jump": [ { "x": 15, "y": 13, "w": 134, "h": 290, "ax": 57, "ay": 43 } ],
+        "fall": [ { "x": 15, "y": 13, "w": 134, "h": 290, "ax": 57, "ay": 43 } ]
     },
 
     player: {
-        x: 100, y: 300, w: 32, h: 48, 
+        x: 100, y: 300, 
+        w: 80, h: 250, // Oppdatert hitbox for å matche sprite-størrelsen (ca 134x290)
         vx: 0, vy: 0, speed: 1, jumpForce: -12,
         grounded: false, facingRight: true, state: 'idle',
         coyoteTimer: 0, jumpBuffer: 0,
-        animTimer: 0, animFrame: 0, animSpeed: 8
+        animTimer: 0, animFrame: 0, 
+        animSpeed: 12 // Litt tregere animasjon siden vi bare har 3 frames
     },
 
     platforms: [
@@ -484,6 +459,7 @@ const Game = {
         const p = this.player;
         ctx.save();
         
+        // Beregn posisjon for ankerpunktet (bunnen senter av hitboxen)
         const anchorXTarget = p.x + p.w / 2;
         const anchorYTarget = p.y + p.h;
 
@@ -496,28 +472,35 @@ const Game = {
             p.animTimer++;
             const frameIndex = Math.floor(p.animTimer / p.animSpeed) % anim.length;
             const f = anim[frameIndex];
+            
+            // Tegn bildet. -f.ax og -f.ay sørger for at ankerpunktet i bildet treffer anchorXTarget/YTarget
             ctx.drawImage(Resources.spritesheet, f.x, f.y, f.w, f.h, -f.ax, -f.ay, f.w, f.h);
+            
+            // Debug: Vis ankerpunktet
+            // ctx.fillStyle = 'cyan'; ctx.fillRect(-2, -2, 4, 4);
         } else {
+            // Fallback
             ctx.fillStyle = p.state === 'jump' || p.state === 'fall' ? '#ff0055' : '#ffcc00';
             ctx.fillRect(-p.w/2, -p.h, p.w, p.h);
             ctx.fillStyle = 'white'; ctx.fillRect(4, -40, 8, 8);
             ctx.fillStyle = 'black'; ctx.fillRect(8, -40, 4, 4);
         }
         ctx.restore();
+        
+        // Debug: Vis Hitbox
+        // ctx.strokeStyle = 'red'; ctx.strokeRect(p.x, p.y, p.w, p.h);
     }
 };
 
 /* === APP / MAIN LOOP === */
 const App = {
     init() {
-        log("Initialiserer 2D Platformer Engine v5 (Mouse Support)...");
+        log("Initialiserer 2D Platformer Engine v6 (Anim Data Injected)...");
         Input.init();
         Resources.init();
         Studio.resetView();
 
-        // FIX: Gjør at museklikk går gjennom overlayet til Canvasen under
         UI.studioOverlay.style.pointerEvents = 'none';
-        // Men sørg for at knappene og info-boksene fortsatt kan klikkes på
         if(UI.studioHeader) UI.studioHeader.style.pointerEvents = 'auto';
         if(UI.studioHelp) UI.studioHelp.style.pointerEvents = 'auto';
         if(UI.jsonContainer) UI.jsonContainer.style.pointerEvents = 'auto';
@@ -547,4 +530,4 @@ const App = {
 window.onload = () => {
     App.init();
 };
-/* Version: #5 */
+/* Version: #6 */
