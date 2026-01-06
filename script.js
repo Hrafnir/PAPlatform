@@ -1,4 +1,4 @@
-/* Version: #6 */
+/* Version: #7 */
 /* === GLOBAL CONFIGURATION & UTILS === */
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -322,14 +322,12 @@ const Game = {
     friction: 0.85,
     camera: { x: 0, y: 0 },
 
-    // JSON Data fra Studio
     spriteDefs: {
         "idle": [
           { "x": 15, "y": 13, "w": 134, "h": 290, "ax": 57, "ay": 43 },
           { "x": 353, "y": 14, "w": 134, "h": 290, "ax": 57, "ay": 43 },
           { "x": 819, "y": 15, "w": 134, "h": 290, "ax": 57, "ay": 43 }
         ], 
-        // Vi bruker Idle som fallback for de andre inntil videre
         "run":  [
           { "x": 15, "y": 13, "w": 134, "h": 290, "ax": 57, "ay": 43 },
           { "x": 353, "y": 14, "w": 134, "h": 290, "ax": 57, "ay": 43 },
@@ -341,12 +339,12 @@ const Game = {
 
     player: {
         x: 100, y: 300, 
-        w: 80, h: 250, // Oppdatert hitbox for å matche sprite-størrelsen (ca 134x290)
+        w: 80, h: 250, 
         vx: 0, vy: 0, speed: 1, jumpForce: -12,
         grounded: false, facingRight: true, state: 'idle',
         coyoteTimer: 0, jumpBuffer: 0,
         animTimer: 0, animFrame: 0, 
-        animSpeed: 12 // Litt tregere animasjon siden vi bare har 3 frames
+        animSpeed: 12
     },
 
     platforms: [
@@ -459,11 +457,17 @@ const Game = {
         const p = this.player;
         ctx.save();
         
-        // Beregn posisjon for ankerpunktet (bunnen senter av hitboxen)
-        const anchorXTarget = p.x + p.w / 2;
-        const anchorYTarget = p.y + p.h;
+        // --- NY LOGIKK FOR PLASSERING ---
+        // 1. Vertikalt: Vi bruker bunnen av Hitboxen (p.y + p.h) som "Gulv".
+        //    Vi sørger for at bunnen av animasjons-rammen (f.h) treffer dette gulvet.
+        //    Dette ignorerer ay (øye-høyde) for plassering mot bakken, som sikrer at føttene står støtt.
+        const groundY = p.y + p.h;
 
-        ctx.translate(anchorXTarget, anchorYTarget);
+        // 2. Horisontalt: Vi bruker sentrum av Hitboxen.
+        //    Her bruker vi ax (anker/øye) til å sentrere figuren.
+        const centerX = p.x + p.w / 2;
+
+        ctx.translate(centerX, groundY);
         if (!p.facingRight) ctx.scale(-1, 1); 
 
         const anim = this.spriteDefs[p.state];
@@ -473,11 +477,11 @@ const Game = {
             const frameIndex = Math.floor(p.animTimer / p.animSpeed) % anim.length;
             const f = anim[frameIndex];
             
-            // Tegn bildet. -f.ax og -f.ay sørger for at ankerpunktet i bildet treffer anchorXTarget/YTarget
-            ctx.drawImage(Resources.spritesheet, f.x, f.y, f.w, f.h, -f.ax, -f.ay, f.w, f.h);
+            // Tegn bildet:
+            // dx = -f.ax: Dette gjør at 'ax' (øyet) havner på X=0 (som er sentrum av hitboxen)
+            // dy = -f.h:  Dette gjør at bunnen av bildet havner på Y=0 (som er bakken/gulvet)
+            ctx.drawImage(Resources.spritesheet, f.x, f.y, f.w, f.h, -f.ax, -f.h, f.w, f.h);
             
-            // Debug: Vis ankerpunktet
-            // ctx.fillStyle = 'cyan'; ctx.fillRect(-2, -2, 4, 4);
         } else {
             // Fallback
             ctx.fillStyle = p.state === 'jump' || p.state === 'fall' ? '#ff0055' : '#ffcc00';
@@ -487,7 +491,7 @@ const Game = {
         }
         ctx.restore();
         
-        // Debug: Vis Hitbox
+        // Debug: Vis Hitbox (for å sjekke at føttene treffer bunnen av boksen)
         // ctx.strokeStyle = 'red'; ctx.strokeRect(p.x, p.y, p.w, p.h);
     }
 };
@@ -495,7 +499,7 @@ const Game = {
 /* === APP / MAIN LOOP === */
 const App = {
     init() {
-        log("Initialiserer 2D Platformer Engine v6 (Anim Data Injected)...");
+        log("Initialiserer 2D Platformer Engine v7 (Anchor Fix)...");
         Input.init();
         Resources.init();
         Studio.resetView();
@@ -530,4 +534,4 @@ const App = {
 window.onload = () => {
     App.init();
 };
-/* Version: #6 */
+/* Version: #7 */
