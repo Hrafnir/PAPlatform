@@ -1,4 +1,4 @@
-/* Version: #4 */
+/* Version: #5 */
 /* === GLOBAL CONFIGURATION & UTILS === */
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -14,7 +14,9 @@ const UI = {
     frameCounter: document.getElementById('frame-counter'),
     scoreDisplay: document.getElementById('score-display'),
     debugInfo: document.getElementById('debug-info'),
-    fileInput: document.getElementById('spriteUpload')
+    fileInput: document.getElementById('spriteUpload'),
+    studioHeader: document.querySelector('.studio-header'),
+    studioHelp: document.querySelector('.studio-help')
 };
 
 // Logger funksjon
@@ -25,18 +27,15 @@ function log(msg) {
 /* === INPUT MODULE === */
 const Input = {
     keys: {},
-    keysPressed: {}, // For å registrere kun ett trykk (ikke hold)
-    mouse: { x: 0, y: 0, isDown: false, scroll: 0 },
+    keysPressed: {}, 
+    mouse: { x: 0, y: 0, isDown: false, downX: 0, downY: 0 },
 
     init() {
         window.addEventListener('keydown', (e) => {
             this.keys[e.code] = true;
-            // Hindre scrolling med piler/space hvis spillet er i fokus, men tillat F1/F5 etc.
             if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight", "Space"].indexOf(e.code) > -1) {
                 e.preventDefault();
             }
-            
-            // Toggle Studio med F1
             if (e.code === 'F1') {
                 e.preventDefault();
                 App.toggleStudio();
@@ -45,41 +44,43 @@ const Input = {
 
         window.addEventListener('keyup', (e) => {
             this.keys[e.code] = false;
-            this.keysPressed[e.code] = false; // Reset "pressed" state
+            this.keysPressed[e.code] = false; 
         });
 
-        // Mouse events for Studio Pan/Zoom
-        canvas.addEventListener('mousedown', (e) => {
-            this.mouse.isDown = true;
-            this.mouse.lastX = e.clientX;
-            this.mouse.lastY = e.clientY;
-        });
-        window.addEventListener('mouseup', () => this.mouse.isDown = false);
-        canvas.addEventListener('mousemove', (e) => {
-            this.mouse.x = e.clientX - canvas.getBoundingClientRect().left;
-            this.mouse.y = e.clientY - canvas.getBoundingClientRect().top;
-            
-            if (this.mouse.isDown && Studio.active) {
-                const dx = e.clientX - this.mouse.lastX;
-                const dy = e.clientY - this.mouse.lastY;
-                Studio.pan(dx, dy);
-                this.mouse.lastX = e.clientX;
-                this.mouse.lastY = e.clientY;
+        // Mouse Events
+        // Vi legger lyttere på window for å fange opp drags som går utenfor canvas
+        window.addEventListener('mousedown', (e) => {
+            if (e.target === canvas) {
+                this.mouse.isDown = true;
+                this.mouse.downX = e.clientX - canvas.getBoundingClientRect().left;
+                this.mouse.downY = e.clientY - canvas.getBoundingClientRect().top;
+                
+                if (Studio.active) Studio.onMouseDown(this.mouse.downX, this.mouse.downY);
             }
         });
+
+        window.addEventListener('mouseup', () => {
+            this.mouse.isDown = false;
+            if (Studio.active) Studio.onMouseUp();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            this.mouse.x = e.clientX - rect.left;
+            this.mouse.y = e.clientY - rect.top;
+            
+            if (Studio.active) Studio.onMouseMove(this.mouse.x, this.mouse.y);
+        });
+
         canvas.addEventListener('wheel', (e) => {
             if (Studio.active) {
                 e.preventDefault();
-                Studio.zoom(e.deltaY);
+                Studio.zoom(e.deltaY, this.mouse.x, this.mouse.y);
             }
         }, { passive: false });
     },
 
-    isDown(code) {
-        return this.keys[code] === true;
-    },
-
-    // Returnerer true KUN første frame knappen trykkes
+    isDown(code) { return this.keys[code] === true; },
     isPressed(code) {
         if (this.keys[code] && !this.keysPressed[code]) {
             this.keysPressed[code] = true;
@@ -91,20 +92,19 @@ const Input = {
 
 /* === RESOURCES MODULE === */
 const Resources = {
-    spritesheet: null, // Det aktive bildet
+    spritesheet: null,
     
     init() {
         UI.fileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
-
             const reader = new FileReader();
             reader.onload = (event) => {
                 const img = new Image();
                 img.onload = () => {
                     this.spritesheet = img;
-                    log("Nytt spritesheet lastet opp: " + file.name + " (" + img.width + "x" + img.height + ")");
-                    Studio.resetView(); // Sentrer visning
+                    log("Nytt spritesheet lastet opp.");
+                    Studio.resetView();
                 };
                 img.src = event.target.result;
             };
@@ -120,23 +120,22 @@ const Resources = {
 /* === ANIMATION STUDIO MODULE === */
 const Studio = {
     active: false,
-    frames: [], // Liste med definerte frames {x, y, w, h, ax, ay}
-    
-    // Editor State
+    frames: [], 
     currentFrame: { x: 0, y: 0, w: 32, h: 32, ax: 16, ay: 32 },
-    mode: 'BOX', // 'BOX' (Red) eller 'ANCHOR' (Cyan)
     
-    // Viewport State (Pan/Zoom)
-    view: { x: 0, y: 0, scale: 1.0 },
+    // Viewport
+    view: { x: 0, y: 0, scale: 2.0 },
+
+    // Mouse Interaction State
+    dragMode: 'NONE', // 'NONE', 'PAN', 'BOX', 'RESIZE', 'ANCHOR'
+    dragOffset: { x: 0, y: 0 }, // Hvor i boksen vi klikket
 
     toggle() {
         this.active = !this.active;
         if (this.active) {
             UI.studioOverlay.classList.remove('hidden');
-            log("Studio Mode: AKTIV");
         } else {
             UI.studioOverlay.classList.add('hidden');
-            log("Studio Mode: DEAKTIVERT");
         }
     },
 
@@ -146,123 +145,193 @@ const Studio = {
         this.view.scale = 2.0;
     },
 
-    pan(dx, dy) {
-        this.view.x += dx;
-        this.view.y += dy;
+    // Konverterer skjerm-koordinater (mus) til verden-koordinater (spritesheet)
+    screenToWorld(sx, sy) {
+        return {
+            x: (sx - this.view.x) / this.view.scale,
+            y: (sy - this.view.y) / this.view.scale
+        };
     },
 
-    zoom(delta) {
+    zoom(delta, mouseX, mouseY) {
         const zoomSpeed = 0.1;
-        if (delta < 0) this.view.scale += zoomSpeed;
-        else this.view.scale = Math.max(0.1, this.view.scale - zoomSpeed);
+        const oldScale = this.view.scale;
+        let newScale = delta < 0 ? oldScale + zoomSpeed : oldScale - zoomSpeed;
+        newScale = Math.max(0.1, newScale);
+
+        // Zoom mot muspekeren:
+        // 1. Finn hvor musa er i verden FØR zoom
+        const worldPos = this.screenToWorld(mouseX, mouseY);
+
+        // 2. Oppdater scale
+        this.view.scale = newScale;
+
+        // 3. Juster view.x/y slik at worldPos er på samme skjermsted
+        this.view.x = mouseX - (worldPos.x * newScale);
+        this.view.y = mouseY - (worldPos.y * newScale);
+    },
+
+    onMouseDown(mx, my) {
+        const wMouse = this.screenToWorld(mx, my);
+        const f = this.currentFrame;
+        
+        // Sjekk treffsoner (Prioritet: Anker > Resize > Boks > Bakgrunn)
+        
+        // 1. ANCHOR (Cyan kryss) - Toleranse på 10px (i skjermpiksler)
+        const anchorScreenX = (f.x + f.ax) * this.view.scale + this.view.x;
+        const anchorScreenY = (f.y + f.ay) * this.view.scale + this.view.y;
+        const distAnchor = Math.hypot(mx - anchorScreenX, my - anchorScreenY);
+        
+        if (distAnchor < 15) {
+            this.dragMode = 'ANCHOR';
+            this.dragOffset = { x: f.ax - (wMouse.x - f.x), y: f.ay - (wMouse.y - f.y) }; // Offset fra frame top-left
+            return;
+        }
+
+        // 2. RESIZE HANDLE (Høyre hjørne)
+        const handleScreenX = (f.x + f.w) * this.view.scale + this.view.x;
+        const handleScreenY = (f.y + f.h) * this.view.scale + this.view.y;
+        const distHandle = Math.hypot(mx - handleScreenX, my - handleScreenY);
+
+        if (distHandle < 15) {
+            this.dragMode = 'RESIZE';
+            this.dragOffset = { x: f.w - (wMouse.x - f.x), y: f.h - (wMouse.y - f.y) };
+            return;
+        }
+
+        // 3. BOX BODY
+        if (wMouse.x >= f.x && wMouse.x <= f.x + f.w &&
+            wMouse.y >= f.y && wMouse.y <= f.y + f.h) {
+            this.dragMode = 'BOX';
+            this.dragOffset = { x: wMouse.x - f.x, y: wMouse.y - f.y };
+            return;
+        }
+
+        // 4. PAN VIEW
+        this.dragMode = 'PAN';
+        this.dragOffset = { x: mx - this.view.x, y: my - this.view.y };
+    },
+
+    onMouseUp() {
+        this.dragMode = 'NONE';
+    },
+
+    onMouseMove(mx, my) {
+        const wMouse = this.screenToWorld(mx, my);
+        const f = this.currentFrame;
+
+        // Oppdater cursor basert på hover når vi ikke drar
+        if (this.dragMode === 'NONE') {
+            const anchorScreenX = (f.x + f.ax) * this.view.scale + this.view.x;
+            const anchorScreenY = (f.y + f.ay) * this.view.scale + this.view.y;
+            const distAnchor = Math.hypot(mx - anchorScreenX, my - anchorScreenY);
+            
+            const handleScreenX = (f.x + f.w) * this.view.scale + this.view.x;
+            const handleScreenY = (f.y + f.h) * this.view.scale + this.view.y;
+            const distHandle = Math.hypot(mx - handleScreenX, my - handleScreenY);
+
+            if (distAnchor < 15) canvas.style.cursor = 'crosshair';
+            else if (distHandle < 15) canvas.style.cursor = 'nwse-resize';
+            else if (wMouse.x >= f.x && wMouse.x <= f.x + f.w && wMouse.y >= f.y && wMouse.y <= f.y + f.h) canvas.style.cursor = 'move';
+            else canvas.style.cursor = 'default';
+        }
+
+        // Utfør dragging
+        if (this.dragMode === 'PAN') {
+            this.view.x = mx - this.dragOffset.x;
+            this.view.y = my - this.dragOffset.y;
+        } 
+        else if (this.dragMode === 'BOX') {
+            f.x = Math.round(wMouse.x - this.dragOffset.x);
+            f.y = Math.round(wMouse.y - this.dragOffset.y);
+        } 
+        else if (this.dragMode === 'RESIZE') {
+            // Beregn ny width/height basert på musposisjon relativt til boksens start
+            let newW = Math.round(wMouse.x - f.x);
+            let newH = Math.round(wMouse.y - f.y);
+            if (newW < 1) newW = 1;
+            if (newH < 1) newH = 1;
+            f.w = newW;
+            f.h = newH;
+        } 
+        else if (this.dragMode === 'ANCHOR') {
+            // Anker er relativt til f.x/f.y
+            // Musens posisjon i verden - boksens posisjon = anker offset
+            f.ax = Math.round(wMouse.x - f.x);
+            f.ay = Math.round(wMouse.y - f.y);
+        }
     },
 
     update() {
         if (!this.active) return;
 
-        // Modifiers
-        let speed = 1;
-        if (Input.isDown('ShiftLeft')) speed = 5;
-        if (Input.isDown('ControlLeft')) speed = 0.25; // Finjustering
-
-        // Mode Switching
-        if (Input.isPressed('Tab')) {
-            this.mode = this.mode === 'BOX' ? 'ANCHOR' : 'BOX';
-            UI.modeIndicator.textContent = `MODE: ${this.mode} (${this.mode === 'BOX' ? 'Red' : 'Cyan'})`;
-        }
-
-        // Editing Logic
-        if (this.mode === 'BOX') {
-            // Move Box Position
-            if (Input.isPressed('ArrowLeft') || (Input.isDown('ArrowLeft') && speed > 1)) this.currentFrame.x -= speed;
-            if (Input.isPressed('ArrowRight') || (Input.isDown('ArrowRight') && speed > 1)) this.currentFrame.x += speed;
-            if (Input.isPressed('ArrowUp') || (Input.isDown('ArrowUp') && speed > 1)) this.currentFrame.y -= speed;
-            if (Input.isPressed('ArrowDown') || (Input.isDown('ArrowDown') && speed > 1)) this.currentFrame.y += speed;
-
-            // Resize Box
-            if (Input.isPressed('KeyA') || (Input.isDown('KeyA') && speed > 1)) this.currentFrame.w -= speed;
-            if (Input.isPressed('KeyD') || (Input.isDown('KeyD') && speed > 1)) this.currentFrame.w += speed;
-            if (Input.isPressed('KeyW') || (Input.isDown('KeyW') && speed > 1)) this.currentFrame.h -= speed;
-            if (Input.isPressed('KeyS') || (Input.isDown('KeyS') && speed > 1)) this.currentFrame.h += speed;
-        } else {
-            // Move Anchor Point
-            if (Input.isPressed('ArrowLeft') || (Input.isDown('ArrowLeft') && speed > 1)) this.currentFrame.ax -= speed;
-            if (Input.isPressed('ArrowRight') || (Input.isDown('ArrowRight') && speed > 1)) this.currentFrame.ax += speed;
-            if (Input.isPressed('ArrowUp') || (Input.isDown('ArrowUp') && speed > 1)) this.currentFrame.ay -= speed;
-            if (Input.isPressed('ArrowDown') || (Input.isDown('ArrowDown') && speed > 1)) this.currentFrame.ay += speed;
-        }
-
-        // Save & Next
+        // Keyboard shortcuts (beholder disse for presisjon)
         if (Input.isPressed('Enter')) {
-            // Klon objektet
             const frameData = { ...this.currentFrame };
             this.frames.push(frameData);
-            log(`Frame ${this.frames.length} lagret.`);
-            
-            // Flytt boksen til høyre for neste frame automatisk
             this.currentFrame.x += this.currentFrame.w; 
-            
             UI.frameCounter.textContent = `Frame: ${this.frames.length}`;
+            log("Frame lagret.");
         }
-
-        // Generate JSON
         if (Input.isPressed('KeyF')) {
-            const json = JSON.stringify(this.frames, null, 2);
-            UI.jsonTextarea.value = json;
+            UI.jsonTextarea.value = JSON.stringify(this.frames, null, 2);
             UI.jsonContainer.classList.remove('hidden');
-            log("JSON generert.");
+        }
+        if (Input.isPressed('Tab')) {
+            // Toggle mode visuelt, selv om musa gjør alt nå
+            this.mode = this.mode === 'BOX' ? 'ANCHOR' : 'BOX';
+            UI.modeIndicator.textContent = `MODE: ${this.mode}`;
         }
     },
 
     draw() {
         if (!this.active) return;
 
-        // Bakgrunn for Studio (mørk grå)
         ctx.fillStyle = '#1a1a1a';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // Grid
         this.drawGrid();
 
         ctx.save();
-        // Påfør Pan/Zoom transformasjon
         ctx.translate(this.view.x, this.view.y);
         ctx.scale(this.view.scale, this.view.scale);
 
         if (Resources.spritesheet) {
             ctx.drawImage(Resources.spritesheet, 0, 0);
         } else {
-            ctx.fillStyle = '#333';
-            ctx.font = '20px Arial';
-            ctx.fillText("Ingen bilde lastet. Last opp spritesheet (F1)", 10, 50);
+            ctx.fillStyle = '#555';
+            ctx.font = '10px Arial';
+            ctx.fillText("Ingen bilde", 10, 10);
         }
 
-        // 1. Onion Skin (Vis forrige frame svakt)
+        // Onion Skin
         if (this.frames.length > 0) {
             const prev = this.frames[this.frames.length - 1];
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 1 / this.view.scale;
             ctx.strokeRect(prev.x, prev.y, prev.w, prev.h);
         }
 
-        // 2. Tegn alle lagrede frames (grønn)
+        // Saved Frames
         ctx.strokeStyle = '#00ff00';
-        ctx.lineWidth = 1 / this.view.scale; // Hold linjen tynn uansett zoom
-        for (let f of this.frames) {
-            ctx.strokeRect(f.x, f.y, f.w, f.h);
-        }
+        ctx.lineWidth = 1 / this.view.scale;
+        for (let f of this.frames) ctx.strokeRect(f.x, f.y, f.w, f.h);
 
-        // 3. Tegn NÅVÆRENDE Redigeringsboks (Rød)
+        // Current Frame
         const c = this.currentFrame;
-        ctx.strokeStyle = '#ff0055'; // Rød
+        ctx.strokeStyle = '#ff0055'; 
         ctx.lineWidth = 2 / this.view.scale;
         ctx.strokeRect(c.x, c.y, c.w, c.h);
 
-        // 4. Tegn Ankerpunkt (Cyan Kryss)
+        // Resize Handle (Liten hvit boks nede til høyre)
+        const handleSize = 6 / this.view.scale;
+        ctx.fillStyle = 'white';
+        ctx.fillRect(c.x + c.w - handleSize, c.y + c.h - handleSize, handleSize, handleSize);
+
+        // Anchor Point (Cyan Cross)
         const worldAx = c.x + c.ax;
         const worldAy = c.y + c.ay;
         const crossSize = 5 / this.view.scale;
-
-        ctx.strokeStyle = '#00ffff'; // Cyan
+        ctx.strokeStyle = '#00ffff'; 
         ctx.beginPath();
         ctx.moveTo(worldAx - crossSize, worldAy);
         ctx.lineTo(worldAx + crossSize, worldAy);
@@ -274,7 +343,7 @@ const Studio = {
     },
 
     drawGrid() {
-        ctx.strokeStyle = '#333';
+        ctx.strokeStyle = '#2a2a2a';
         ctx.lineWidth = 1;
         ctx.beginPath();
         for (let x = 0; x < canvas.width; x += 50) { ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); }
@@ -288,12 +357,8 @@ const Game = {
     running: true,
     gravity: 0.5,
     friction: 0.85,
-    
-    // Camera
     camera: { x: 0, y: 0 },
 
-    // --- SPRITE DEFINITIONS ---
-    // Her skal du lime inn JSON fra Studioet senere.
     spriteDefs: {
         "idle": [], 
         "run":  [],
@@ -301,43 +366,23 @@ const Game = {
         "fall": []
     },
 
-    // Entities
     player: {
-        x: 100, y: 300,
-        w: 32, h: 48, // Hitbox størrelse (kollisjon)
-        vx: 0, vy: 0,
-        speed: 1,
-        jumpForce: -12,
-        grounded: false,
-        facingRight: true,
-        state: 'idle', // idle, run, jump, fall
-        coyoteTimer: 0, 
-        jumpBuffer: 0,
-        
-        // Animation State
-        animTimer: 0,
-        animFrame: 0,
-        animSpeed: 8 // Hvor mange game-frames per anim-frame (lavere = raskere)
+        x: 100, y: 300, w: 32, h: 48, 
+        vx: 0, vy: 0, speed: 1, jumpForce: -12,
+        grounded: false, facingRight: true, state: 'idle',
+        coyoteTimer: 0, jumpBuffer: 0,
+        animTimer: 0, animFrame: 0, animSpeed: 8
     },
 
-    // Et mer komplekst testbrett
     platforms: [
-        { x: 0, y: 600, w: 2000, h: 200 }, // Hovedgulv
-        
-        // Trapper oppover til høyre
+        { x: 0, y: 600, w: 2000, h: 200 },
         { x: 500, y: 550, w: 100, h: 50 },
         { x: 600, y: 500, w: 100, h: 100 },
         { x: 700, y: 450, w: 100, h: 150 },
-        
-        // En vegg man kan stange i
         { x: 800, y: 300, w: 50, h: 300 },
-        
-        // Svevende plattformer
         { x: 200, y: 450, w: 150, h: 20 },
         { x: 50, y: 350, w: 100, h: 20 },
         { x: 250, y: 250, w: 150, h: 20 },
-        
-        // Et tak høyt oppe
         { x: 400, y: 150, w: 400, h: 20 }
     ],
 
@@ -347,9 +392,6 @@ const Game = {
         const p = this.player;
         const prevState = p.state;
 
-        // --- INPUT & PHYSICS ---
-        
-        // Horizontal Movement
         if (Input.isDown('KeyD') || Input.isDown('ArrowRight')) {
             p.vx += p.speed;
             p.facingRight = true;
@@ -359,24 +401,14 @@ const Game = {
             p.facingRight = false;
         }
 
-        // Friction & Gravity
         p.vx *= this.friction;
         p.vy += this.gravity;
 
-        // Jump Buffer
-        if (Input.isPressed('Space') || Input.isPressed('ArrowUp')) {
-            p.jumpBuffer = 10;
-        }
-
-        // Coyote Time
-        if (p.grounded) {
-            p.coyoteTimer = 10;
-        } else {
-            if (p.coyoteTimer > 0) p.coyoteTimer--;
-        }
+        if (Input.isPressed('Space') || Input.isPressed('ArrowUp')) p.jumpBuffer = 10;
+        if (p.grounded) p.coyoteTimer = 10;
+        else if (p.coyoteTimer > 0) p.coyoteTimer--;
         if (p.jumpBuffer > 0) p.jumpBuffer--;
 
-        // Jump Logic
         if (p.jumpBuffer > 0 && p.coyoteTimer > 0) {
             p.vy = p.jumpForce;
             p.grounded = false;
@@ -384,10 +416,7 @@ const Game = {
             p.jumpBuffer = 0;
         }
 
-        // --- COLLISION DETECTION (AABB) ---
         p.grounded = false;
-
-        // X-Axis
         p.x += p.vx;
         for (let plat of this.platforms) {
             if (this.checkRectCollide(p, plat)) {
@@ -397,15 +426,14 @@ const Game = {
             }
         }
 
-        // Y-Axis
         p.y += p.vy;
         for (let plat of this.platforms) {
             if (this.checkRectCollide(p, plat)) {
-                if (p.vy > 0) { // Lander
+                if (p.vy > 0) {
                     p.y = plat.y - p.h;
                     p.grounded = true;
                     p.vy = 0;
-                } else if (p.vy < 0) { // Tak
+                } else if (p.vy < 0) {
                     p.y = plat.y + plat.h;
                     p.vy = 0;
                 }
@@ -414,20 +442,14 @@ const Game = {
 
         if (p.y > 2000) { p.x = 100; p.y = 300; p.vy = 0; }
 
-        // --- STATE MACHINE ---
-        if (!p.grounded) {
-            p.state = p.vy < 0 ? 'jump' : 'fall';
-        } else {
-            p.state = Math.abs(p.vx) > 0.5 ? 'run' : 'idle';
-        }
+        if (!p.grounded) p.state = p.vy < 0 ? 'jump' : 'fall';
+        else p.state = Math.abs(p.vx) > 0.5 ? 'run' : 'idle';
 
-        // Reset animasjon hvis state endres
         if (p.state !== prevState) {
             p.animTimer = 0;
             p.animFrame = 0;
         }
 
-        // --- CAMERA LERP ---
         const targetX = p.x + p.w / 2 - canvas.width / 2;
         const targetY = p.y + p.h / 2 - canvas.height / 2;
         this.camera.x += (targetX - this.camera.x) * 0.1;
@@ -435,91 +457,70 @@ const Game = {
     },
 
     checkRectCollide(r1, r2) {
-        return (r1.x < r2.x + r2.w &&
-                r1.x + r1.w > r2.x &&
-                r1.y < r2.y + r2.h &&
-                r1.y + r1.h > r2.y);
+        return (r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1.y < r2.y + r2.h && r1.y + r1.h > r2.y);
     },
 
     draw() {
         if (Studio.active) return;
 
-        // Clear Background
         ctx.fillStyle = '#6fa8dc';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         ctx.save();
         ctx.translate(-Math.floor(this.camera.x), -Math.floor(this.camera.y));
 
-        // Draw Platforms
-        ctx.fillStyle = '#666';
         for (let plat of this.platforms) {
+            ctx.fillStyle = '#666';
             ctx.fillRect(plat.x, plat.y, plat.w, plat.h);
             ctx.fillStyle = '#4a6';
             ctx.fillRect(plat.x, plat.y, plat.w, 10);
-            ctx.fillStyle = '#666';
         }
 
-        // Draw Player
         this.drawPlayer();
-
         ctx.restore();
     },
 
     drawPlayer() {
         const p = this.player;
-        
         ctx.save();
         
-        // Posisjoner basert på hitboxens bunn-senter (Anchor point logic)
-        // Vi antar at ax/ay i spritesheetet er definert relativt til føttene.
         const anchorXTarget = p.x + p.w / 2;
         const anchorYTarget = p.y + p.h;
 
         ctx.translate(anchorXTarget, anchorYTarget);
         if (!p.facingRight) ctx.scale(-1, 1); 
 
-        // Hent riktig animasjons-array
         const anim = this.spriteDefs[p.state];
         
         if (Resources.spritesheet && anim && anim.length > 0) {
-            // Animasjons-logikk
             p.animTimer++;
             const frameIndex = Math.floor(p.animTimer / p.animSpeed) % anim.length;
             const f = anim[frameIndex];
-
-            // Tegn bildet. 
-            // -f.ax og -f.ay sørger for at ankerpunktet havner på (0,0) i canvas-contexten
             ctx.drawImage(Resources.spritesheet, f.x, f.y, f.w, f.h, -f.ax, -f.ay, f.w, f.h);
-            
-            // Debug: Tegn ankerpunkt
-            // ctx.fillStyle = 'cyan'; ctx.fillRect(-1, -1, 2, 2);
-
         } else {
-            // FALLBACK (Farget boks) hvis ingen animasjon er definert ennå
             ctx.fillStyle = p.state === 'jump' || p.state === 'fall' ? '#ff0055' : '#ffcc00';
             ctx.fillRect(-p.w/2, -p.h, p.w, p.h);
-            
-            // Øyne
             ctx.fillStyle = 'white'; ctx.fillRect(4, -40, 8, 8);
             ctx.fillStyle = 'black'; ctx.fillRect(8, -40, 4, 4);
         }
-
         ctx.restore();
-        
-        // Debug: Tegn hitbox outline
-        // ctx.strokeStyle = 'rgba(255,0,0,0.5)';
-        // ctx.strokeRect(p.x, p.y, p.w, p.h);
     }
 };
 
 /* === APP / MAIN LOOP === */
 const App = {
     init() {
-        log("Initialiserer 2D Platformer Engine v4...");
+        log("Initialiserer 2D Platformer Engine v5 (Mouse Support)...");
         Input.init();
         Resources.init();
         Studio.resetView();
+
+        // FIX: Gjør at museklikk går gjennom overlayet til Canvasen under
+        UI.studioOverlay.style.pointerEvents = 'none';
+        // Men sørg for at knappene og info-boksene fortsatt kan klikkes på
+        if(UI.studioHeader) UI.studioHeader.style.pointerEvents = 'auto';
+        if(UI.studioHelp) UI.studioHelp.style.pointerEvents = 'auto';
+        if(UI.jsonContainer) UI.jsonContainer.style.pointerEvents = 'auto';
         
         requestAnimationFrame(this.loop.bind(this));
     },
@@ -536,11 +537,9 @@ const App = {
             Game.update();
             Game.draw();
         }
-
         if (!Studio.active) {
-            UI.debugInfo.textContent = `FPS: 60 | State: ${Game.player.state} | Grounded: ${Game.player.grounded}`;
+            UI.debugInfo.textContent = `FPS: 60 | State: ${Game.player.state}`;
         }
-
         requestAnimationFrame(this.loop.bind(this));
     }
 };
@@ -548,4 +547,4 @@ const App = {
 window.onload = () => {
     App.init();
 };
-/* Version: #4 */
+/* Version: #5 */
